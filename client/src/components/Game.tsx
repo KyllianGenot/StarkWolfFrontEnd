@@ -15,12 +15,12 @@ import guardCard from '../assets/images/cards/guard.webp';
 import deadCard from '../assets/images/cards/dead.webp';
 import logo from '../assets/images/logos/logo.webp';
 
-// ### Constantes
-const DAY_VOTING_DURATION = 30; // Durée de la phase de vote de jour
-const TURN_DURATION = 15; // Durée par tour de rôle (15 secondes)
-const GAME_START_COUNTDOWN = 30; // Compte à rebours avant le début du jeu
+// Game timing constants
+const DAY_VOTING_DURATION = 30; // Duration of the day voting phase in seconds
+const TURN_DURATION = 15;       // Duration of each role's turn in seconds
+const GAME_START_COUNTDOWN = 30;// Countdown duration before the game begins in seconds
 
-// ### Types
+// Type definitions
 type Role = 'villager' | 'werewolf' | 'seer' | 'witch' | 'hunter' | 'guard' | 'cupid';
 
 interface Player {
@@ -33,6 +33,7 @@ interface Player {
   isProtected: boolean;
   hasDeathPopupShown?: boolean;
   isPlayer?: boolean;
+  loverId?: number; // ID of the player's lover, if any
 }
 
 interface RoleInfo {
@@ -46,7 +47,7 @@ interface PopupState {
   show: boolean;
   title: string;
   message: string;
-  type: 'death' | 'gameOver' | 'turn' | 'seerReveal' | 'voteResult';
+  type: 'death' | 'gameOver' | 'turn' | 'seerReveal' | 'voteResult' | 'lovers';
   role?: Role;
   playerName?: string;
   isVillageWin?: boolean;
@@ -63,7 +64,7 @@ interface GameProps {
   onLeaveGame: () => void;
 }
 
-// ### Constantes des rôles et des joueurs
+// Predefined roles with their properties
 const ROLES: RoleInfo[] = [
   { name: "Cupid", image: cupidCard, role: "cupid" },
   { name: "Guard", image: guardCard, role: "guard" },
@@ -74,6 +75,7 @@ const ROLES: RoleInfo[] = [
   { name: "Villager", image: villagerCard, role: "villager" },
 ];
 
+// Initial player setup
 const INITIAL_PLAYERS: Player[] = [
   { id: 1, name: "Emma", role: "werewolf", status: "alive", position: { x: 0, y: 0 }, voteCount: 0, isProtected: false },
   { id: 2, name: "Luna", role: "witch", status: "alive", position: { x: 0, y: 0 }, voteCount: 0, isProtected: false },
@@ -85,10 +87,13 @@ const INITIAL_PLAYERS: Player[] = [
   { id: 8, name: "Sophie", role: "villager", status: "alive", position: { x: 0, y: 0 }, voteCount: 0, isProtected: false },
 ];
 
-// ### Fonctions utilitaires
+// Utility functions
+
+// Formats time in MM:SS format
 const formatTime = (seconds: number): string =>
   `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`;
 
+// Calculates player positions in a circular layout
 const calculateCirclePositions = (players: Player[], radius: number, centerX: number, centerY: number): Player[] => {
   const numPlayers = players.length;
   const playerIndex = players.findIndex(p => p.isPlayer);
@@ -107,7 +112,7 @@ const calculateCirclePositions = (players: Player[], radius: number, centerX: nu
   });
 };
 
-// ### Composant principal Game
+// Main Game Component
 const Game: React.FC<GameProps> = ({ onLeaveGame }) => {
   const [username, setUsername] = useState<string>("");
   const [showRolePopup, setShowRolePopup] = useState<boolean>(true);
@@ -127,7 +132,7 @@ const Game: React.FC<GameProps> = ({ onLeaveGame }) => {
   const [messageInput, setMessageInput] = useState<string>('');
   const [isPlayerDead, setIsPlayerDead] = useState<boolean>(false);
   const [hasSeerUsedPower, setHasSeerUsedPower] = useState<boolean>(false);
-  const [votes, setVotes] = useState<{ [key: number]: number[] }>({}); // Suivi des votes
+  const [votes, setVotes] = useState<{ [key: number]: number[] }>({}); // Tracks votes per player
   const [hasVoted, setHasVoted] = useState<boolean>(false);
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -138,6 +143,7 @@ const Game: React.FC<GameProps> = ({ onLeaveGame }) => {
     bell: new Audio('/sounds/village-bell.mp3'),
   });
 
+  // Derived state for game statistics
   const aliveWerewolves = players.filter(p => p.role === 'werewolf' && p.status === 'alive').length;
   const aliveVillagers = players.filter(p => p.role !== 'werewolf' && p.status === 'alive').length;
   const alivePlayersCount = players.filter(p => p.status === 'alive').length;
@@ -145,7 +151,7 @@ const Game: React.FC<GameProps> = ({ onLeaveGame }) => {
   const totalWerewolves = players.filter(p => p.role === 'werewolf').length;
   const totalNonWerewolves = players.filter(p => p.role !== 'werewolf').length;
 
-  // ### Effets pour positionner les joueurs en cercle
+  // Positions players in a circle based on game container size
   useEffect(() => {
     const updatePositions = () => {
       if (!gameContainerRef.current) return;
@@ -161,7 +167,7 @@ const Game: React.FC<GameProps> = ({ onLeaveGame }) => {
     return () => window.removeEventListener('resize', updatePositions);
   }, [gameStarted]);
 
-  // ### Compte à rebours avant le début du jeu
+  // Manages the countdown before the game starts
   useEffect(() => {
     if (isReady || countdown <= 0 || gameStarted) return;
 
@@ -180,7 +186,7 @@ const Game: React.FC<GameProps> = ({ onLeaveGame }) => {
     return () => clearInterval(timer);
   }, [isReady, countdown, gameStarted]);
 
-  // ### Mise à jour du nom du joueur
+  // Updates the player's name when username changes
   useEffect(() => {
     const finalUsername = username.trim() || "PlayerX";
     setPlayers(prev =>
@@ -190,12 +196,12 @@ const Game: React.FC<GameProps> = ({ onLeaveGame }) => {
     );
   }, [username]);
 
-  // ### Mise à jour du compte des morts
+  // Updates the count of dead players
   useEffect(() => {
     setDeadCount(players.filter(p => p.status === 'dead').length);
   }, [players]);
 
-  // ### Gestion du timer
+  // Manages the game timer and turn progression
   useEffect(() => {
     if (!gameStarted) return;
 
@@ -227,6 +233,26 @@ const Game: React.FC<GameProps> = ({ onLeaveGame }) => {
             } as PopupState,
           ]);
           if (nextTurn === 'seer') setHasSeerUsedPower(false);
+          // Cupid's love effect: Makes Seer (PlayerX, id: 3) and James (id: 7) lovers 5 seconds after Cupid's turn popup
+          if (nextTurn === 'cupid') {
+            setTimeout(() => {
+              setPlayers(prev =>
+                prev.map(p =>
+                  p.id === 3 ? { ...p, loverId: 7 } : // Seer loves James
+                  p.id === 7 ? { ...p, loverId: 3 } : p // James loves Seer
+                )
+              );
+              setPopupQueue(prev => [
+                ...prev,
+                {
+                  show: true,
+                  title: "Cupid's Arrow",
+                  message: "PlayerX is in love with James!",
+                  type: 'lovers',
+                } as PopupState,
+              ]);
+            }, 5000); // 5 seconds delay
+          }
         } else {
           setPhase('day');
           setCurrentTurn('day');
@@ -280,10 +306,14 @@ const Game: React.FC<GameProps> = ({ onLeaveGame }) => {
       }, 1000);
     }
 
-    return () => interval && clearInterval(interval);
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
   }, [gameStarted, phase, currentTurn, timeLeft, day, soundEnabled, isPlayerDead]);
 
-  // ### Vérification de la fin de la phase de jour
+  // Handles the end of the day phase and voting results
   useEffect(() => {
     if (phase !== 'day') return;
 
@@ -299,11 +329,30 @@ const Game: React.FC<GameProps> = ({ onLeaveGame }) => {
         const playersToKill = players.filter(p => voteCounts[p.id] === maxVotes && p.status === 'alive');
         if (playersToKill.length > 0) {
           const killedPlayer = playersToKill[0];
-          setPlayers(prev =>
-            prev.map(p =>
-              p.id === killedPlayer.id ? { ...p, status: 'dead', hasDeathPopupShown: true } : p
-            )
-          );
+          setPlayers(prev => {
+            let updatedPlayers = prev.map(p =>
+              p.id === killedPlayer.id ? { ...p, status: 'dead' as const, hasDeathPopupShown: true } : p
+            );
+            // Check for lover death
+            const lover = updatedPlayers.find(p => p.id === killedPlayer.loverId && p.status === 'alive');
+            if (lover) {
+              updatedPlayers = updatedPlayers.map(p =>
+                p.id === lover.id ? { ...p, status: 'dead' as const, hasDeathPopupShown: true } : p
+              );
+              setPopupQueue(prevQueue => [
+                ...prevQueue,
+                {
+                  show: true,
+                  title: "Lover's Tragedy",
+                  message: `${lover.name} died of a broken heart after ${killedPlayer.name}'s death.`,
+                  type: 'death',
+                  role: lover.role,
+                  playerName: lover.name,
+                } as PopupState,
+              ]);
+            }
+            return updatedPlayers;
+          });
           setPopupQueue(prev => [
             ...prev,
             {
@@ -332,7 +381,7 @@ const Game: React.FC<GameProps> = ({ onLeaveGame }) => {
     checkVoteCompletion();
   }, [timeLeft, votes, alivePlayersCount, phase, soundEnabled]);
 
-  // ### Gestion de la mort d'un joueur
+  // Handles a player's death and displays appropriate popup
   const handlePlayerDeath = (playerId: number) => {
     setPlayers(prev => {
       const newPlayers = [...prev];
@@ -359,11 +408,29 @@ const Game: React.FC<GameProps> = ({ onLeaveGame }) => {
       setPopupQueue(prev => [...prev, deathPopup]);
       if (isSelf) setIsPlayerDead(true);
 
+      // Check for lover death
+      const lover = newPlayers.find(p => p.id === player.loverId && p.status === 'alive');
+      if (lover) {
+        const loverIndex = newPlayers.findIndex(p => p.id === lover.id);
+        newPlayers[loverIndex] = { ...lover, status: 'dead', hasDeathPopupShown: true };
+        setPopupQueue(prevQueue => [
+          ...prevQueue,
+          {
+            show: true,
+            title: "Lover's Tragedy",
+            message: `${lover.name} died of a broken heart after ${player.name}'s death.`,
+            type: 'death',
+            role: lover.role,
+            playerName: lover.name,
+          } as PopupState,
+        ]);
+      }
+
       return newPlayers;
     });
   };
 
-  // ### Révélation du Voyant (Seer)
+  // Handles the seer's role reveal action
   const handleSeerReveal = (targetId: number) => {
     if (hasSeerUsedPower) return;
 
@@ -410,7 +477,7 @@ const Game: React.FC<GameProps> = ({ onLeaveGame }) => {
     }
   };
 
-  // ### Gestion du vote
+  // Manages player voting during the day phase
   const handleVote = (targetId: number) => {
     if (hasVoted || isPlayerDead || phase !== 'day') return;
 
@@ -424,7 +491,7 @@ const Game: React.FC<GameProps> = ({ onLeaveGame }) => {
     setHasVoted(true);
   };
 
-  // ### Conditions de victoire/défaite
+  // Checks for victory or defeat conditions
   useEffect(() => {
     if (!gameStarted || players.length === 0) return;
 
@@ -468,7 +535,7 @@ const Game: React.FC<GameProps> = ({ onLeaveGame }) => {
     }
   }, [players, aliveWerewolves, aliveVillagers, gameStarted, phase]);
 
-  // ### Envoi de messages dans le chat
+  // Sends a message to the chat
   const handleSendMessage = (content: string) => {
     if (!content.trim()) return;
     setChatMessages(prev => [
@@ -478,7 +545,7 @@ const Game: React.FC<GameProps> = ({ onLeaveGame }) => {
     setMessageInput('');
   };
 
-  // ### Fermeture des popups
+  // Closes the current popup and handles game over navigation
   const handlePopupClose = () => {
     const [currentPopup, ...rest] = popupQueue;
     setPopupQueue(rest);
@@ -487,7 +554,7 @@ const Game: React.FC<GameProps> = ({ onLeaveGame }) => {
     }
   };
 
-  // ### Démarrage manuel du jeu
+  // Manually starts the game when the player is ready
   const handleReadyClick = () => {
     setIsReady(true);
     setGameStarted(true);
@@ -502,7 +569,7 @@ const Game: React.FC<GameProps> = ({ onLeaveGame }) => {
   const isSeerTurn = currentTurn === 'seer' && playerRole === 'seer' && !isPlayerDead;
   const isVotingPhase = phase === 'day' && currentTurn === 'day';
 
-  // ### Rendu du composant
+  // Component rendering
   return (
     <>
       <style jsx global>{`

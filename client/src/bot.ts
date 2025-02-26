@@ -40,7 +40,7 @@ export class StarkWolfGame {
         this.accounts = new Map();
         
         // Load ABI from JSON file
-        const abiPath = './abi_actions.json';
+        const abiPath = './src/abi/abi_actions.json';
         const abiData = fs.readFileSync(abiPath, 'utf-8');
         const abi = JSON.parse(abiData).abi;
         this.contract = new Contract(abi, contractAddress, this.provider);
@@ -305,8 +305,8 @@ async function main() {
 
         // Setup accounts and roles
         const accounts = Array.from({length: 7}, (_, i) => {
-            const address = process.env[`PLAYER${i}_ADDRESS`];
-            const privateKey = process.env[`PLAYER${i}_PRIVATE_KEY`];
+            const address = process.env[`VITE_PLAYER${i}_ADDRESS`];
+            const privateKey = process.env[`VITE_PLAYER${i}_PRIVATE_KEY`];
             
             if (!address || !privateKey) {
                 throw new Error(`Missing environment variables for player ${i}`);
